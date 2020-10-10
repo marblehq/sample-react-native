@@ -733,11 +733,10 @@
     exec-sh "^0.3.2"
     minimist "^1.2.0"
 
-"@fridayhome/messages@/Users/oliver/friday/@fridayhome-messages":
-  version "0.1.1-pre05"
-
-"@fridayhome/messages@file:../../@fridayhome-messages":
-  version "0.1.1-pre05"
+"@fridayhome/sdk@^0.1.2":
+  version "0.1.2"
+  resolved "https://registry.yarnpkg.com/@fridayhome/sdk/-/sdk-0.1.2.tgz#50ffc8197cc7a6ef548cd0d084bc27a55307f498"
+  integrity sha512-Yb2ii59unnwRjAWHg9PQ0wynh8kAtAU6Ccau4JaUoNQBFC+/lyc5+AvGzxF+CRvK9PTBPyfPa3/t/6G1JUmL3g==
 
 "@hapi/address@2.x.x":
   version "2.1.4"

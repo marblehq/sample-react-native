@@ -1,6 +1,12 @@
-import {Advertisement, Characteristics, Services} from '@fridayhome/messages';
-import {encode} from 'base-64';
+import {
+  Advertisement,
+  Characteristics,
+  MessageFactory,
+  Services,
+} from '@fridayhome/messages';
+import {decode, encode} from 'base-64';
 import {Device} from 'react-native-ble-plx';
+import {base64ToBytes} from './utils';
 
 export class FridayDevice {
   device: Device;
@@ -22,7 +28,6 @@ export class FridayDevice {
         Characteristics.UnoRx,
         value,
       )
-      .then((_) => console.debug('data sent'))
       .catch((err) => console.warn(err));
   }
 
@@ -36,7 +41,19 @@ export class FridayDevice {
           return;
         }
 
-        console.log(char?.value);
+        if (!char?.value) {
+          return;
+        }
+
+        // TODO: Messages are sent in 20 bytes chunks. iOS handles this for us, but Android does not. We will have to implement a `ChunkCollector` before it works on Android.
+        const bytes = base64ToBytes(char.value);
+        try {
+          const message = MessageFactory.parse(bytes.slice(4));
+          console.debug(message);
+        } catch (ex) {
+          console.debug(bytes);
+          console.warn(ex);
+        }
       },
     );
   }

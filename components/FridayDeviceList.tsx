@@ -1,19 +1,16 @@
 import {
   BasicInfoRequest,
-  Characteristics,
   DeviceType,
   Envelope,
   KnownKeyIDs,
   parseManufacturerData,
   ProtocolV1,
-  Services,
-  stringToBytes,
 } from '@fridayhome/messages';
-import {decode} from 'base-64';
 import React, {useCallback, useEffect, useMemo, useState} from 'react';
 import {StyleSheet, Text, View} from 'react-native';
 import {BleManager, State} from 'react-native-ble-plx';
 import {FridayDevice} from '../src/FridayDevice';
+import {base64ToBytes} from '../src/utils';
 
 export const FridayDeviceList = () => {
   const manager = useMemo(() => new BleManager(), []);
@@ -99,10 +96,3 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
   },
 });
-
-function base64ToBytes(str?: string | null): number[] {
-  if (!str) {
-    return [];
-  }
-  return stringToBytes(decode(str));
-}
