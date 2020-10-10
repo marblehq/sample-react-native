@@ -733,8 +733,11 @@
     exec-sh "^0.3.2"
     minimist "^1.2.0"
 
+"@fridayhome/messages@/Users/oliver/friday/@fridayhome-messages":
+  version "0.1.1-pre05"
+
 "@fridayhome/messages@file:../../@fridayhome-messages":
-  version "0.1.1-pre02"
+  version "0.1.1-pre05"
 
 "@hapi/address@2.x.x":
   version "2.1.4"
