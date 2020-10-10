@@ -1,12 +1,13 @@
+import {parseManufacturerData, stringToByteArray} from '@fridayhome/messages';
+import {decode} from 'base-64';
 import React, {useEffect, useMemo, useState} from 'react';
 import {StyleSheet, Text, View} from 'react-native';
-import {BleManager, Device, State} from 'react-native-ble-plx';
-import {byteArrayToHex, stringToByteArray} from '@fridayhome/messages';
-import {decode} from 'base-64';
+import {BleManager, State} from 'react-native-ble-plx';
+import {FridayDevice} from '../src/FridayDevice';
 
 export const FridayDeviceList = () => {
   const manager = useMemo(() => new BleManager(), []);
-  const [devices, setDevices] = useState<Device[]>([]);
+  const [devices, setDevices] = useState<FridayDevice[]>([]);
 
   useEffect(() => {
     manager.onStateChange((state) => {
@@ -21,22 +22,27 @@ export const FridayDeviceList = () => {
             return;
           }
 
-          if (!device.name?.startsWith('Friday Lock')) {
+          const bytes = base64ToBytes(device.manufacturerData);
+          const manufacturerData = parseManufacturerData(bytes);
+
+          if (!manufacturerData?.isFriday) {
             return;
           }
+          console.debug(bytes);
+          console.log(manufacturerData.manufacturerId);
 
-          console.log(device.manufacturerData);
-          const data: string = decode(device.manufacturerData);
-          const bytes: number[] = stringToByteArray(data);
+          const fridayDevice = device as FridayDevice;
+          fridayDevice.friday = manufacturerData;
 
-          console.log(device.name);
-          console.log(bytes);
-          console.log(byteArrayToHex(bytes));
-
-          // 00-07-02-69-D3-8E-B8
-          // B8-8E-D3-69-02-07-00
-
-          setDevices((ds) => [device]);
+          setDevices((ds) =>
+            ds
+              .filter(
+                (x) =>
+                  x.friday.manufacturerId !==
+                  fridayDevice.friday.manufacturerId,
+              )
+              .concat([fridayDevice]),
+          );
         });
       } else {
         console.log(`State is ${state}`);
@@ -48,7 +54,9 @@ export const FridayDeviceList = () => {
     <View style={styles.container}>
       <Text style={styles.title}>List of Friday devices</Text>
       {devices.map((x, i) => (
-        <Text key={i}>{x.name}</Text>
+        <Text key={i} style={styles.device}>
+          {x.name}
+        </Text>
       ))}
     </View>
   );
@@ -61,4 +69,14 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 24,
   },
+  device: {
+    paddingVertical: 10,
+  },
 });
+
+function base64ToBytes(str?: string | null): number[] {
+  if (!str) {
+    return [];
+  }
+  return stringToByteArray(decode(str));
+}
