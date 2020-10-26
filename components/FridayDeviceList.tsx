@@ -6,13 +6,16 @@ import {
 	KnownKeyIDs,
 	parseManufacturerData,
 	ProtocolV1,
+	ProtocolV2,
+	ChallengeRequest,
 } from '@fridayhome/sdk';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Button, StyleSheet, Text, View } from 'react-native';
 import { BleManager, State } from 'react-native-ble-plx';
 import { Encryptor } from '../src/Encryptor';
 import { FridayDevice } from '../src/FridayDevice';
 import Base64 from 'base64-js';
+import { keyPair } from '../src/constants';
 
 export const FridayDeviceList = () => {
 	const manager = useMemo(() => new BleManager(), []);
@@ -55,31 +58,35 @@ export const FridayDeviceList = () => {
 		});
 	}, [manager, setDevices]);
 
-	const send = useCallback(
-		(fridayDevice: FridayDevice) => () => {
-			fridayDevice.device.connect().then(() => {
-				console.log(`Connected to ${fridayDevice.friday.manufacturerId}`);
-				fridayDevice.device.discoverAllServicesAndCharacteristics().then(() => {
-					fridayDevice.monitorUno();
-					const message = new BasicInfoRequest(
-						new ProtocolV1(1, new Date(Date.now()))
-					);
-					const envelope = new Envelope(KnownKeyIDs.NoKeyID, message);
-					fridayDevice.sendUno(envelope.toBytes());
-				});
-			});
-		},
-		[]
-	);
-
 	return (
 		<View style={styles.container}>
 			<Text style={styles.title}>List of Friday devices</Text>
 			{devices.map((device, i) => (
-				<Text key={i} style={styles.device} onPress={send(device)}>
-					{DeviceType[device.friday.type]} - {device.friday.manufacturerId}
-				</Text>
+				<DeviceItem key={i} device={device} />
 			))}
+		</View>
+	);
+};
+
+const DeviceItem = (props: { device: FridayDevice }) => {
+	const { device } = props;
+
+	const unlock = useCallback(async () => {
+		await device.connect();
+		const message = new ChallengeRequest(new ProtocolV2());
+		const envelope = new Envelope(100, message);
+		device.sendUno(
+			await envelope.toEncryptedBytes(keyPair.privateKey, device.publicKey!)
+		);
+	}, [device]);
+
+	return (
+		<View style={styles.deviceContainer}>
+			<Button title="Unlock" onPress={unlock} />
+			<Text style={styles.device}>
+				{DeviceType[device.friday.type]} - {device.friday.manufacturerId}
+			</Text>
+			<Button title="Lock" onPress={() => {}} />
 		</View>
 	);
 };
@@ -93,5 +100,10 @@ const styles = StyleSheet.create({
 	},
 	device: {
 		paddingVertical: 10,
+	},
+	deviceContainer: {
+		display: 'flex',
+		flexDirection: 'row',
+		justifyContent: 'space-evenly',
 	},
 });

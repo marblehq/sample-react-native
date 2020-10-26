@@ -5,10 +5,17 @@ import {
 	Services,
 	IMessage,
 	BasicInfoResponse,
+	BitConverter,
+	KnownKeyIDs,
+	Encryption,
+	BasicInfoRequest,
+	ProtocolV1,
+	Envelope,
 } from '@fridayhome/sdk';
 import { encode } from 'base-64';
 import { Device } from 'react-native-ble-plx';
 import Base64 from 'base64-js';
+import { keyPair } from './constants';
 
 export class FridayDevice {
 	device: Device;
@@ -18,6 +25,20 @@ export class FridayDevice {
 	constructor(device: Device, advertisement: Advertisement) {
 		this.device = device;
 		this.friday = advertisement;
+	}
+
+	public async connect(): Promise<void> {
+		await this.device.connect();
+		console.log(`Connected to ${this.friday.manufacturerId}`);
+		await this.device.discoverAllServicesAndCharacteristics();
+		this.monitorUno();
+
+		// NOTE: We request the basic info from the lock here on every connect. This is data is mostly static, and should be cached between connection
+		const message = new BasicInfoRequest(
+			new ProtocolV1(1, new Date(Date.now()))
+		);
+		const envelope = new Envelope(KnownKeyIDs.NoKeyID, message);
+		this.sendUno(envelope.toBytes());
 	}
 
 	public sendUno(bytes: Uint8Array) {
@@ -40,7 +61,7 @@ export class FridayDevice {
 		this.device.monitorCharacteristicForService(
 			Services.UnoPrimary,
 			Characteristics.UnoTx,
-			(err, char) => {
+			async (err, char) => {
 				if (err) {
 					console.warn(err);
 					return;
@@ -53,13 +74,30 @@ export class FridayDevice {
 				// TODO: Messages are sent in 20 bytes chunks. iOS handles this for us, but Android does not. We will have to implement a `ChunkCollector` before it works on Android.
 				const bytes = Base64.toByteArray(char.value);
 				try {
-					const message = MessageFactory.parse(bytes.slice(4));
+					const keyId = BitConverter.toInt16(bytes, 2);
+					let body = bytes.slice(4);
+					if (this.isEncrypted(keyId)) {
+						body = await Encryption.decrypt(
+							body,
+							keyPair.privateKey,
+							this.publicKey!
+						);
+					}
+
+					const message = MessageFactory.parse(body);
+
 					this.handleMessage(message);
 				} catch (ex) {
 					console.warn(bytes);
 					console.warn(ex);
 				}
 			}
+		);
+	}
+
+	private isEncrypted(keyId: number) {
+		return (
+			keyId > KnownKeyIDs.ServerKey && keyId < KnownKeyIDs.HomeKitEnterSetup
 		);
 	}
 
