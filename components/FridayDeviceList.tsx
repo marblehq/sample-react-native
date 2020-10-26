@@ -71,22 +71,30 @@ export const FridayDeviceList = () => {
 const DeviceItem = (props: { device: FridayDevice }) => {
 	const { device } = props;
 
+	const init = useCallback(async () => {
+		await device.connect();
+		const message = new BasicInfoRequest(
+			new ProtocolV1(1, new Date(Date.now()))
+		);
+		const envelope = new Envelope(KnownKeyIDs.NoKeyID, message);
+		device.sendUno(envelope.toBytes());
+	}, [device]);
 	const unlock = useCallback(async () => {
 		await device.connect();
-		const message = new ChallengeRequest(new ProtocolV2());
-		const envelope = new Envelope(100, message);
-		device.sendUno(
-			await envelope.toEncryptedBytes(keyPair.privateKey, device.publicKey!)
-		);
+		const challenge = await device.getChallenge();
+		console.debug(`Got challenge: ${challenge}`);
 	}, [device]);
+	const lock = useCallback(async () => {
+		// TODO:
+	}, []);
 
 	return (
 		<View style={styles.deviceContainer}>
 			<Button title="Unlock" onPress={unlock} />
-			<Text style={styles.device}>
+			<Text style={styles.device} onPress={init}>
 				{DeviceType[device.friday.type]} - {device.friday.manufacturerId}
 			</Text>
-			<Button title="Lock" onPress={() => {}} />
+			<Button title="Lock" onPress={lock} />
 		</View>
 	);
 };

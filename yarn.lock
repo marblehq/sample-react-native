@@ -728,8 +728,11 @@
     exec-sh "^0.3.2"
     minimist "^1.2.0"
 
+"@fridayhome/sdk@/Users/oliver/friday/@fridayhome-sdk":
+  version "0.1.4-pre04"
+
 "@fridayhome/sdk@file:../../@fridayhome-sdk":
-  version "0.1.4-pre03"
+  version "0.1.4-pre04"
 
 "@hapi/address@2.x.x":
   version "2.1.4"
