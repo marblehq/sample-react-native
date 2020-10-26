@@ -1,5 +1,6 @@
 import {
 	Advertisement,
+	BasicInfoRequest,
 	BasicInfoResponse,
 	BitConverter,
 	ChallengeRequest,
@@ -11,14 +12,17 @@ import {
 	IMessage,
 	IProtocol,
 	KnownKeyIDs,
+	LockOperation,
+	LockUnlockStateMessage,
 	MessageFactory,
 	ProtocolV1,
 	ProtocolV2,
 	Services,
+	MessageType,
 } from '@fridayhome/sdk';
 import { encode } from 'base-64';
 import Base64 from 'base64-js';
-import { Device } from 'react-native-ble-plx';
+import { Device, Subscription } from 'react-native-ble-plx';
 import { keyPair } from './constants';
 
 export class FridayDevice {
@@ -39,46 +43,57 @@ export class FridayDevice {
 		await this.device.connect();
 		console.log(`Connected to ${this.friday.manufacturerId}`);
 		await this.device.discoverAllServicesAndCharacteristics();
-		this.monitorUno();
 	}
 
-	public getChallenge(): Promise<Uint8Array> {
-		return new Promise(async (resolve, reject) => {
-			const message = new ChallengeRequest(
-				new ProtocolV2(this.sequenceNumber + 1)
-			);
-			const envelope = new Envelope(100, message);
-			this.device.monitorCharacteristicForService(
-				Services.UnoPrimary,
-				Characteristics.UnoTx,
-				async (err, char) => {
-					if (err) {
-						console.error(err);
-						return;
-					}
-					if (!char?.value) {
-						return;
-					}
-					const response = await this.parseData(char.value);
-					if (response && response.header.protocol instanceof ProtocolV2) {
-						this.handleProtocol(response.header.protocol);
-						resolve(response.header.protocol.challenge);
-					} else {
-						reject();
-					}
+	/**
+	 * Operate (lock/unlock) a lock.
+	 *
+	 * This works be retreiving a one-time challenge from the lock,
+	 * then creating a message with a protocol with the retrieved challenge,
+	 * which is then encrypted and transmitted to the lock.
+	 */
+	public async operate(operation: LockOperation): Promise<void> {
+		await this.connect();
+		// Get the basic information from the lock, which is required for sending encrypted messages
+		await this.getBasicInfo();
+		// Get a one-time challenge from the lock to use for the operation
+		const challenge = await this.getChallenge();
+
+		// Listen for a response
+		const sub = this.monitorUno((message) => {
+			if (message instanceof CommandResponse) {
+				if (message.status === CommandResponseStatus.Success) {
+					console.info('Lock was operated successfully');
+				} else {
+					console.warn(
+						`Error when trying to operate lock: ${
+							CommandResponseStatus[message.status]
+						}`
+					);
 				}
-			);
-
-			this.sendUno(
-				await envelope.toEncryptedBytes(keyPair.privateKey, this.publicKey!)
-			);
+				// Always disconnect when finished communicating with the lock, to allow other clients to see and connect to the lock.
+				this.device.cancelConnection();
+				sub.remove();
+			}
 		});
+
+		// Create message, wrap it in an envelope, encrypt and send!
+		const message = new LockUnlockStateMessage(
+			new ProtocolV2(this.sequenceNumber, challenge),
+			operation,
+			new Date()
+		);
+		const envelope = new Envelope(100, message);
+		this.sendUno(
+			await envelope.toEncryptedBytes(keyPair.privateKey, this.publicKey!)
+		);
 	}
 
+	/**
+	 * Transmit data to the Uno lock
+	 */
 	public sendUno(bytes: Uint8Array) {
-		console.debug(
-			`Sending to ${this.friday.manufacturerId}: ${bytes.slice(0, 10)}`
-		);
+		console.trace(`Sending message to ${this.friday.manufacturerId}`);
 		const str = Array.prototype.map
 			.call(bytes, (x) => String.fromCharCode(x))
 			.join('');
@@ -93,23 +108,20 @@ export class FridayDevice {
 			.catch((err) => console.warn(err));
 	}
 
-	public monitorUno() {
-		this.device.monitorCharacteristicForService(
+	public monitorUno(onMessage: (message: IMessage) => void): Subscription {
+		return this.device.monitorCharacteristicForService(
 			Services.UnoPrimary,
 			Characteristics.UnoTx,
 			async (err, char) => {
-				if (err) {
+				if (err || !char?.value) {
 					console.warn(err);
-					return;
-				}
-
-				if (!char?.value) {
 					return;
 				}
 
 				const message = await this.parseData(char.value);
 				if (message) {
 					this.handleMessage(message);
+					onMessage(message);
 				}
 			}
 		);
@@ -118,7 +130,6 @@ export class FridayDevice {
 	private async parseData(data: string): Promise<IMessage | undefined> {
 		// TODO: Messages are sent in 20 bytes chunks. iOS handles this for us, but Android does not. We will have to implement a `ChunkCollector` before it works on Android.
 		const bytes = Base64.toByteArray(data);
-		console.trace('Received message');
 		try {
 			const keyId = BitConverter.toInt16(bytes, 2);
 			let body = bytes.slice(4);
@@ -129,6 +140,7 @@ export class FridayDevice {
 					this.publicKey!
 				);
 			}
+			console.trace(`${MessageType[BitConverter.toInt16(body, 2)]} received`);
 
 			return MessageFactory.parse(body);
 		} catch (ex) {
@@ -159,14 +171,71 @@ export class FridayDevice {
 		);
 	}
 
+	/**
+	 * Retreive the basic info from the lock.
+	 * This will be sat on `this` object.
+	 */
+	private getBasicInfo(): Promise<void> {
+		return new Promise(async (resolve) => {
+			const sub = this.monitorUno((message) => {
+				if (message instanceof BasicInfoResponse) {
+					this.publicKey = message.publicKey;
+					sub.remove();
+					resolve();
+				}
+			});
+
+			await this.connect();
+			const message = new BasicInfoRequest(
+				new ProtocolV1(1, new Date(Date.now()))
+			);
+			const envelope = new Envelope(KnownKeyIDs.NoKeyID, message);
+			this.sendUno(envelope.toBytes());
+		});
+	}
+
+	/**
+	 * Retreive a challenge from the lock.
+	 */
+	private getChallenge(): Promise<Uint8Array> {
+		return new Promise(async (resolve, reject) => {
+			const message = new ChallengeRequest(
+				new ProtocolV2(this.sequenceNumber + 1)
+			);
+			const envelope = new Envelope(100, message);
+			const subscription = this.device.monitorCharacteristicForService(
+				Services.UnoPrimary,
+				Characteristics.UnoTx,
+				async (err, char) => {
+					if (err || !char?.value) {
+						console.error(err);
+						return;
+					}
+
+					const response = await this.parseData(char.value);
+					if (response && response.header.protocol instanceof ProtocolV2) {
+						this.handleProtocol(response.header.protocol);
+						resolve(response.header.protocol.challenge);
+					} else {
+						reject();
+					}
+					subscription.remove();
+				}
+			);
+
+			this.sendUno(
+				await envelope.toEncryptedBytes(keyPair.privateKey, this.publicKey!)
+			);
+		});
+	}
+
 	private handleMessage(message: IMessage) {
 		this.handleProtocol(message.header.protocol);
 
 		if (message instanceof BasicInfoResponse) {
-			this.publicKey = message.publicKey;
 		} else if (message instanceof CommandResponse) {
 			if (message.status !== CommandResponseStatus.Success) {
-				console.warn(`Command status ${message.status}`);
+				console.warn(`Command status ${CommandResponseStatus[message.status]}`);
 			}
 		} else {
 			console.warn(`Unhandled message ${message.header.messageType}`);

@@ -6,8 +6,7 @@ import {
 	KnownKeyIDs,
 	parseManufacturerData,
 	ProtocolV1,
-	ProtocolV2,
-	ChallengeRequest,
+	LockOperation,
 } from '@fridayhome/sdk';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Button, StyleSheet, Text, View } from 'react-native';
@@ -71,27 +70,15 @@ export const FridayDeviceList = () => {
 const DeviceItem = (props: { device: FridayDevice }) => {
 	const { device } = props;
 
-	const init = useCallback(async () => {
-		await device.connect();
-		const message = new BasicInfoRequest(
-			new ProtocolV1(1, new Date(Date.now()))
-		);
-		const envelope = new Envelope(KnownKeyIDs.NoKeyID, message);
-		device.sendUno(envelope.toBytes());
-	}, [device]);
-	const unlock = useCallback(async () => {
-		await device.connect();
-		const challenge = await device.getChallenge();
-		console.debug(`Got challenge: ${challenge}`);
-	}, [device]);
-	const lock = useCallback(async () => {
-		// TODO:
-	}, []);
+	const unlock = useCallback(() => device.operate(LockOperation.Unlock), [
+		device,
+	]);
+	const lock = useCallback(() => device.operate(LockOperation.Lock), [device]);
 
 	return (
 		<View style={styles.deviceContainer}>
 			<Button title="Unlock" onPress={unlock} />
-			<Text style={styles.device} onPress={init}>
+			<Text style={styles.device}>
 				{DeviceType[device.friday.type]} - {device.friday.manufacturerId}
 			</Text>
 			<Button title="Lock" onPress={lock} />
