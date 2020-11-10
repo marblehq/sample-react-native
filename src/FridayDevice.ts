@@ -134,11 +134,18 @@ export class FridayDevice {
 			const keyId = BitConverter.toInt16(bytes, 2);
 			let body = bytes.slice(4);
 			if (this.isEncrypted(keyId)) {
-				body = await Encryption.decrypt(
-					body,
-					keyPair.privateKey,
-					this.publicKey!
-				);
+				try {
+					body = await Encryption.decrypt(
+						body,
+						keyPair.privateKey,
+						this.publicKey!
+					);
+				} catch {
+					console.warn(
+						'Unable to decrypt message from lock. This is likely because the encryption key pair in this application does not match the key pair used to setup the lock'
+					);
+					return;
+				}
 			}
 			console.trace(`${MessageType[BitConverter.toInt16(body, 2)]} received`);
 
